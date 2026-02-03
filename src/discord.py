@@ -121,6 +121,13 @@ class DiscordWebhook:
 
     def post_startup_message(self) -> bool:
         """Post a startup notification to Discord."""
+        # Format expiration filter
+        hours = self.config.min_hours_to_expiration
+        if hours >= 24:
+            expiration_str = f"{hours // 24}+ days"
+        else:
+            expiration_str = f"{hours}+ hours"
+
         payload = {
             "username": self.config.bot_username,
             "avatar_url": self.config.bot_avatar_url,
@@ -133,6 +140,11 @@ class DiscordWebhook:
                         {
                             "name": "Poll Interval",
                             "value": f"{self.config.poll_interval_seconds // 60} minutes",
+                            "inline": True,
+                        },
+                        {
+                            "name": "Min Duration",
+                            "value": expiration_str,
                             "inline": True,
                         },
                         {

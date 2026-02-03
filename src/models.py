@@ -19,6 +19,7 @@ class MarketEvent:
     url: str
     category: str
     created_at: datetime | None = None
+    end_date: datetime | None = None
 
     def __hash__(self):
         return hash((self.id, self.source))

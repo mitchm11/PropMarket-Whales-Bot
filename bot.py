@@ -33,8 +33,14 @@ class MarketEventsBot:
         self.config = config
         self.storage = MarketStorage(config.database_path)
         self.discord = DiscordWebhook(config)
-        self.polymarket = PolymarketClient(config.polymarket_api_url)
-        self.kalshi = KalshiClient(config.kalshi_api_url)
+        self.polymarket = PolymarketClient(
+            config.polymarket_api_url,
+            min_hours_to_expiration=config.min_hours_to_expiration
+        )
+        self.kalshi = KalshiClient(
+            config.kalshi_api_url,
+            min_hours_to_expiration=config.min_hours_to_expiration
+        )
         self._running = False
 
     def _fetch_all_events(self) -> list[MarketEvent]:
