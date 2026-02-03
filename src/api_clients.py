@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -29,16 +29,30 @@ def create_session_with_retries(retries: int = 3, backoff_factor: float = 0.5) -
 class MarketAPIClient(ABC):
     """Abstract base class for market API clients."""
 
+    def __init__(self, min_hours_to_expiration: int = 24):
+        self.min_hours_to_expiration = min_hours_to_expiration
+
     @abstractmethod
     def fetch_events(self) -> list[MarketEvent]:
         """Fetch all current events from the API."""
         pass
 
+    def _passes_expiration_filter(self, end_date: datetime | None) -> bool:
+        """Check if an event passes the minimum expiration filter."""
+        if end_date is None:
+            # If no end date, include it (be permissive)
+            return True
+
+        now = datetime.now(timezone.utc)
+        min_end_date = now + timedelta(hours=self.min_hours_to_expiration)
+        return end_date >= min_end_date
+
 
 class PolymarketClient(MarketAPIClient):
     """Client for the Polymarket API."""
 
-    def __init__(self, api_url: str = "https://gamma-api.polymarket.com/events"):
+    def __init__(self, api_url: str = "https://gamma-api.polymarket.com/events", min_hours_to_expiration: int = 24):
+        super().__init__(min_hours_to_expiration)
         self.api_url = api_url
         self.session = create_session_with_retries()
 
@@ -101,6 +115,18 @@ class PolymarketClient(MarketAPIClient):
                 except (ValueError, TypeError):
                     pass
 
+            # Parse end date
+            end_date = None
+            if end_date_str := data.get("endDate"):
+                try:
+                    end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+
+            # Filter by expiration
+            if not self._passes_expiration_filter(end_date):
+                return None
+
             return MarketEvent(
                 id=str(event_id),
                 source=MarketSource.POLYMARKET,
@@ -109,6 +135,7 @@ class PolymarketClient(MarketAPIClient):
                 url=url,
                 category=data.get("category", "Unknown"),
                 created_at=created_at,
+                end_date=end_date,
             )
         except Exception as e:
             logger.warning(f"Failed to parse Polymarket event: {e}")
@@ -118,7 +145,8 @@ class PolymarketClient(MarketAPIClient):
 class KalshiClient(MarketAPIClient):
     """Client for the Kalshi API."""
 
-    def __init__(self, api_url: str = "https://api.elections.kalshi.com/trade-api/v2/events"):
+    def __init__(self, api_url: str = "https://api.elections.kalshi.com/trade-api/v2/events", min_hours_to_expiration: int = 24):
+        super().__init__(min_hours_to_expiration)
         self.api_url = api_url
         self.session = create_session_with_retries()
 
@@ -175,6 +203,20 @@ class KalshiClient(MarketAPIClient):
             if subtitle:
                 title = f"{title} - {subtitle}"
 
+            # Parse end date (Kalshi uses strike_date or expiration_time)
+            end_date = None
+            for date_field in ["strike_date", "expiration_time", "close_time"]:
+                if date_str := data.get(date_field):
+                    try:
+                        end_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                        break
+                    except (ValueError, TypeError):
+                        continue
+
+            # Filter by expiration
+            if not self._passes_expiration_filter(end_date):
+                return None
+
             return MarketEvent(
                 id=event_ticker,
                 source=MarketSource.KALSHI,
@@ -183,6 +225,7 @@ class KalshiClient(MarketAPIClient):
                 url=url,
                 category=data.get("category", "Unknown"),
                 created_at=None,  # Not provided in the response
+                end_date=end_date,
             )
         except Exception as e:
             logger.warning(f"Failed to parse Kalshi event: {e}")

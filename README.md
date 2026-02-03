@@ -11,6 +11,7 @@ A Discord bot that monitors Polymarket and Kalshi for new prediction market even
 - Automatic retry with exponential backoff
 - Graceful shutdown handling
 - Initial sync to avoid spamming on first run
+- Configurable minimum expiration filter (ignore short-term markets)
 
 ## Setup
 
@@ -65,6 +66,7 @@ Railway will automatically detect the Dockerfile and run the bot.
 |----------|----------|---------|-------------|
 | `DISCORD_WEBHOOK_URL` | Yes | - | Discord webhook URL |
 | `POLL_INTERVAL_SECONDS` | No | 300 | How often to check for new markets (in seconds) |
+| `MIN_HOURS_TO_EXPIRATION` | No | 24 | Only post markets with at least this many hours until expiration |
 | `DATABASE_PATH` | No | data/seen_markets.db | Path to SQLite database |
 | `BOT_USERNAME` | No | Market Events | Bot display name in Discord |
 | `BOT_AVATAR_URL` | No | (default image) | Bot avatar URL |
