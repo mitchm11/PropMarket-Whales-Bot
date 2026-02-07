@@ -1,5 +1,6 @@
 import logging
 import time
+from collections import defaultdict
 
 import requests
 
@@ -62,10 +63,6 @@ class DiscordWebhook:
             },
         }
 
-        # Add description if available
-        if event.description:
-            embed["description"] = event.description[:2048]  # Discord limit
-
         # Add timestamp if available
         if event.created_at:
             embed["timestamp"] = event.created_at.isoformat()
@@ -118,6 +115,96 @@ class DiscordWebhook:
             if self.post_event(event):
                 successful += 1
         return successful
+
+    def _format_grouped_embed(self, category: str, events: list[MarketEvent]) -> dict:
+        """Format a group of events in the same category as a single Discord embed."""
+        count = len(events)
+        title = f"{count} New {category} Event{'s' if count != 1 else ''}"
+
+        # Build list of event links with source icons
+        lines = []
+        for event in events:
+            source_icon = self._get_source_icon(event.source)
+            if event.url:
+                lines.append(f"{source_icon} [{event.title}]({event.url})")
+            else:
+                lines.append(f"{source_icon} {event.title}")
+
+        description = "\n".join(lines)
+        # Truncate to Discord's 4096 char description limit
+        if len(description) > 4096:
+            description = description[:4093] + "..."
+
+        # Use the color of the first event's source
+        color = self._get_embed_color(events[0].source)
+
+        # If mixed sources, use default blurple
+        sources = {e.source for e in events}
+        if len(sources) > 1:
+            color = 0x5865F2
+
+        return {
+            "title": title,
+            "description": description,
+            "color": color,
+        }
+
+    def post_grouped_events(self, events: list[MarketEvent]) -> list[MarketEvent]:
+        """Post events grouped by category. Returns the list of successfully posted events."""
+        if not events:
+            return []
+
+        # Group events by category
+        by_category: dict[str, list[MarketEvent]] = defaultdict(list)
+        for event in events:
+            by_category[event.category or "Unknown"].append(event)
+
+        posted_events: list[MarketEvent] = []
+
+        for category, group in by_category.items():
+            if len(group) == 1:
+                # Single event in category - post as individual compact embed
+                embed = self._format_embed(group[0])
+            else:
+                # Multiple events - post as grouped summary
+                embed = self._format_grouped_embed(category, group)
+
+            self._respect_rate_limit()
+            payload = {
+                "username": self.config.bot_username,
+                "avatar_url": self.config.bot_avatar_url,
+                "embeds": [embed],
+            }
+
+            try:
+                response = self.session.post(
+                    self.config.discord_webhook_url,
+                    json=payload,
+                    timeout=10,
+                )
+
+                if response.status_code == 429:
+                    retry_after = response.json().get("retry_after", 5)
+                    logger.warning(f"Rate limited by Discord, waiting {retry_after}s")
+                    time.sleep(retry_after)
+                    # Retry this group
+                    response = self.session.post(
+                        self.config.discord_webhook_url,
+                        json=payload,
+                        timeout=10,
+                    )
+
+                response.raise_for_status()
+                posted_events.extend(group)
+                if len(group) == 1:
+                    logger.info(f"Posted event to Discord: {group[0].title[:50]}...")
+                else:
+                    logger.info(f"Posted {len(group)} {category} events to Discord as group")
+
+            except requests.RequestException as e:
+                logger.error(f"Failed to post {category} group to Discord: {e}")
+
+        return posted_events
 
     def post_startup_message(self) -> bool:
         """Post a startup notification to Discord."""
