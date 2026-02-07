@@ -73,15 +73,13 @@ class MarketEventsBot:
 
         logger.info(f"Found {len(new_events)} new events")
 
-        # Post to Discord
-        posted = 0
-        for event in new_events:
-            if self.discord.post_event(event):
-                self.storage.mark_seen(event)
-                posted += 1
+        # Post to Discord grouped by category
+        posted_events = self.discord.post_grouped_events(new_events)
+        for event in posted_events:
+            self.storage.mark_seen(event)
 
-        logger.info(f"Posted {posted}/{len(new_events)} events to Discord")
-        return posted
+        logger.info(f"Posted {len(posted_events)}/{len(new_events)} events to Discord")
+        return len(posted_events)
 
     def run_once(self) -> int:
         """Run a single poll cycle. Returns number of events posted."""
